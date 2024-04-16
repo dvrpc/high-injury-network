@@ -1,0 +1,22 @@
+{
+    "urls": {
+        "countyboundaries": "https://arcgis.dvrpc.org/portal/rest/services/Boundaries/CountyBoundaries/FeatureServer/0/query?where=state_fips='34'&outFields=co_name&outSR=26918&f=geojson",
+        "crash_newjersey": "https://arcgis.dvrpc.org/portal/rest/services/Transportation/CRASH_NewJersey/FeatureServer/0/query?where=1=1&outFields=casenumber,countyname,sri_std_rte_identifier_,newmp,totalkilled,major_injury&outSR=26918&f=geojson",
+        "crash_nj_flag": "https://arcgis.dvrpc.org/portal/rest/services/Transportation/CRASH_NJ_Flag/FeatureServer/0/query?where=1=1&outFields=casenumber,fatal_or_maj_inj,injury,pedestrian,bicycle&f=json",
+        "njdot_lrs": "https://arcgis.dvrpc.org/portal/rest/services/Transportation/NJDOT_LRS/FeatureServer/0/query?where=1=1&outFields=sri,mp_start,mp_end,route_subtype&returnM=true&outSR=26918&f=json",
+        "crash_pennsylvania":"https://arcgis.dvrpc.org/portal/rest/services/Transportation/CRASH_Pennsylvania/FeatureServer/0/query?where=1=1&outFields=crn,crash_year,fatal_count,maj_inj_count&outSR=26918&f=geojson",
+        "crash_pa_roadway":"https://arcgis.dvrpc.org/portal/rest/services/Transportation/CRASH_PA_ROADWAY/FeatureServer/0/query?where=1=1&outFields=crn,adj_rdwy_seq,county,route,segment,offset_,side_ind,cum_offset&f=json",
+        "crash_pa_flag":"https://arcgis.dvrpc.org/portal/rest/services/Transportation/CRASH_PA_FLAG/FeatureServer/0/query?where=1=1&outFields=crn,major_injury,injury,fatal,fatal_or_susp_serious_inj,bicycle,pedestrian&f=json",
+        "padot_rms":"https://arcgis.dvrpc.org/portal/rest/services/Transportation/PADOT_RMS/FeatureServer/0/query?where=district_n='06'&outFields=st_rt_no,cty_code,seg_no,seg_lngth_,side_ind,cum_offset,cum_offs_1,access_ctr,interst_ne&outSR=26918&f=geojson",
+        "padot_localroads": "https://arcgis.dvrpc.org/portal/rest/services/Transportation/padot_localroads/FeatureServer/0/query?where=district_no='06'&outFields=cty_code,lr_id,segment_number,cum_offset_bgn,cum_offset_end&outSR=26918&f=geojson",
+        "pa_hsns_urban_segs": "https://services1.arcgis.com/jOy9iZUXBy03ojXb/ArcGIS/rest/services/HSNS_2021/FeatureServer/0/query?where=DISTRICT='06'&outFields=st_rt_no,cty_code,seg_bgn,offset_bgn,seg_end,offset_end,LENGTH_FT,hsns_id&outSR=26918&f=geojson",
+        "pa_hsns_rural_segs": "https://services1.arcgis.com/jOy9iZUXBy03ojXb/ArcGIS/rest/services/HSNS_2021/FeatureServer/1/query?where=DISTRICT='06'&outFields=st_rt_no,cty_code,seg_bgn,offset_bgn,seg_end,offset_end,LENGTH_FT,hsns_id&outSR=26918&f=geojson",
+        "pa_hsns_urban_intersections": "https://services1.arcgis.com/jOy9iZUXBy03ojXb/ArcGIS/rest/services/HSNS_2021/FeatureServer/2/query?where=DISTRICT='06'&outFields=hsns_id,county,MAJ_DESIGNATION,maj_seg_no,maj_offset,min_DESIGNATION,min_seg_no,min_offset&outSR=26918&f=geojson",
+        "pa_hsns_rural_intersections": "https://services1.arcgis.com/jOy9iZUXBy03ojXb/ArcGIS/rest/services/HSNS_2021/FeatureServer/3/query?where=DISTRICT='06'&outFields=hsns_id,county,MAJ_DESIGNATION,maj_seg_no,maj_offset,min_DESIGNATION,min_seg_no,min_offset&outSR=26918&f=geojson",
+        "nj_hsip_hrrr": "https://arcgis.dvrpc.org/portal/rest/services/Transportation/hsip_hrrr/FeatureServer/0/query?where=1=1&outFields=sri,milepostfrom,milepostto&outSR=26918&f=geojson",
+        "nj_hsip_corridor": "https://arcgis.dvrpc.org/portal/rest/services/Transportation/hsip_corridor/FeatureServer/0/query?where=1=1&outFields=sri,milepostfrom,milepostto&outSR=26918&f=geojson",
+        "nj_hsip_pedbike": "https://arcgis.dvrpc.org/portal/rest/services/Transportation/hsip_pedbikecorridor/FeatureServer/0/query?where=1=1&outFields=sri,milepostfrom,milepostto&outSR=26918&f=geojson",
+        "nj_hsip_ped": "https://arcgis.dvrpc.org/portal/rest/services/Transportation/hsip_pedcorridor/FeatureServer/0/query?where=1=1&outFields=sri,milepostfrom,milepostto&outSR=26918&f=geojson"
+    }
+}
+
