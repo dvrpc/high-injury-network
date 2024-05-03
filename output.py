@@ -28,7 +28,7 @@ def create_geojson(dbname, path):
 
     for table_name in table_names:
         if 'crashes' in table_name:
-            gdf = gpd.read_postgis(f"SELECT * FROM output.{table_name}", engine)
+            gdf = gpd.read_postgis(f"SELECT * FROM output.{table_name} where geom is not null", engine)
         else:
             gdf = gpd.read_postgis(f"SELECT * FROM output.{table_name} where st_geometrytype(geom) != 'ST_Point'", engine)
             gdf = gdf.dissolve('hin_id')

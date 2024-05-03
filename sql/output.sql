@@ -315,7 +315,7 @@ SELECT
     c.injury,
     c.pedestrian,
     c.bicycle,
-    ST_StartPoint (
+    ST_Force2D(ST_StartPoint (
         ST_LineSubstring (
             rn.geometry,
             GREATEST(
@@ -333,7 +333,7 @@ SELECT
                 1
             )
         )
-    ) AS geom
+    )) AS geom
 FROM
     output.nj_ksi_bp_crashes c
     JOIN input.njdot_lrs rn ON c.sri = rn.sri
@@ -348,6 +348,7 @@ WITH
         SELECT
             cp.geometry AS geom,
             cp.crn,
+            cp.county,
             cp.crash_year,
             cp.fatal_count,
             cp.maj_inj_count,
@@ -382,6 +383,7 @@ WITH
         SELECT DISTINCT
             ON (ms.geom) ms.geom,
             ms.crn,
+            ms.county,
             ms.crash_year,
             ms.fatal_count,
             ms.maj_inj_count,
@@ -413,6 +415,7 @@ WITH
 SELECT
     geom,
     crn,
+    county::int,
     crash_year,
     fatal_count,
     maj_inj_count,
