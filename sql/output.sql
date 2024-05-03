@@ -301,3 +301,134 @@ WHERE
     hin.window_from >= lrs.cum_offset_bgn
     AND hin.window_to <= lrs.cum_offset_end;
 COMMIT;
+-- NJ Crashes mapped
+BEGIN;
+CREATE TABLE
+    output.nj_crashes_gis AS
+SELECT
+    c.casenumber,
+    c.sri,
+    c.mp,
+    c.totalkilled,
+    c.major_injury,
+    c.fatal_or_maj_inj,
+    c.injury,
+    c.pedestrian,
+    c.bicycle,
+    ST_StartPoint (
+        ST_LineSubstring (
+            rn.geometry,
+            GREATEST(
+                CASE
+                    WHEN c.mp::NUMERIC <= rn.mp_start::NUMERIC THEN 0
+                    ELSE (c.mp::NUMERIC - rn.mp_start::NUMERIC) / (rn.mp_end::NUMERIC - rn.mp_start::NUMERIC)
+                END,
+                0
+            ),
+            LEAST(
+                CASE
+                    WHEN c.mp::NUMERIC >= rn.mp_end::NUMERIC THEN 1
+                    ELSE (c.mp::NUMERIC - rn.mp_start::NUMERIC) / (rn.mp_end::NUMERIC - rn.mp_start::NUMERIC)
+                END,
+                1
+            )
+        )
+    ) AS geom
+FROM
+    output.nj_ksi_bp_crashes c
+    JOIN input.njdot_lrs rn ON c.sri = rn.sri
+    AND c.mp BETWEEN rn.mp_start AND rn.mp_end;
+COMMIT;
+-- PA crashes mapped
+BEGIN;
+CREATE TABLE
+    output.pa_crashes_gis AS
+WITH
+    missing_crashes AS (
+        SELECT
+            cp.geometry AS geom,
+            cp.crn,
+            cp.crash_year,
+            cp.fatal_count,
+            cp.maj_inj_count,
+            fpa.major_injury,
+            fpa.fatal,
+            fpa.injury,
+            fpa.fatal_or_susp_serious_inj,
+            fpa.bicycle,
+            fpa.pedestrian
+        FROM
+            input.crash_pennsylvania cp
+            JOIN input.crash_pa_flag fpa ON fpa.crn = cp.crn
+        WHERE
+            NOT (
+                cp.crn IN (
+                    SELECT
+                        pa_ksi_bp_crashes.crn
+                    FROM
+                        output.pa_ksi_bp_crashes
+                )
+            )
+            AND (cp.crash_year BETWEEN 2018 AND 2022)
+            AND (
+                fpa.major_injury = 1
+                OR fpa.fatal = 1
+                OR fpa.bicycle = 1
+                OR fpa.pedestrian = 1
+            )
+            AND st_isempty (cp.geometry) IS FALSE
+    ),
+    LOCAL AS (
+        SELECT DISTINCT
+            ON (ms.geom) ms.geom,
+            ms.crn,
+            ms.crash_year,
+            ms.fatal_count,
+            ms.maj_inj_count,
+            ms.major_injury,
+            ms.fatal,
+            ms.injury,
+            ms.fatal_or_susp_serious_inj,
+            ms.bicycle,
+            ms.pedestrian
+        FROM
+            missing_crashes ms
+            JOIN (
+                SELECT
+                    padot_localroads.geometry,
+                    padot_localroads.cty_code,
+                    padot_localroads.lr_id,
+                    padot_localroads.segment_number,
+                    padot_localroads.cum_offset_bgn,
+                    padot_localroads.cum_offset_end
+                FROM
+                    input.padot_localroads
+                WHERE
+                    padot_localroads.lr_id IS NOT NULL
+            ) lr ON ST_Dwithin(ms.geom, lr.geometry, 10::DOUBLE PRECISION)
+        ORDER BY
+            ms.geom,
+            (ST_Distance(ms.geom, lr.geometry))
+    )
+SELECT
+    geom,
+    crn,
+    crash_year,
+    fatal_count,
+    maj_inj_count,
+    major_injury,
+    fatal,
+    injury,
+    fatal_or_susp_serious_inj,
+    bicycle,
+    pedestrian,
+    0 AS LOCAL
+FROM
+    output.pa_ksi_bp_crashes
+UNION
+SELECT
+    *,
+    1 AS LOCAL
+FROM
+    LOCAL;
+COMMIT;
