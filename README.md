@@ -22,7 +22,7 @@ KSI and Bike/Ped high injury network geojson files for each state in your output
 - PostgreSQL w/ PostGIS
 - Python 3.x
 - DVRPC ArcGIS Portal credentials to pull GIS data from ArcGIS Server
-- [.csv](./source/nj_limitedaccess.csv) of NJDOT limited access roadway information
+- [.csv](./source/nj_lrs_access.csv) created with ArcGIS Overlay Route Events tool using LRS table and Limited Access table
 
 ### Run
 1. Clone the repo

@@ -1,8 +1,8 @@
 {
     "urls": {
-        "municpalboundaries": "https://arcgis.dvrpc.org/portal/rest/services/Boundaries/MunicipalBoundaries/FeatureServer/0/query?where=dvrpc_reg='Yes'&outFields=co_name,mun_name&outSR=26918&f=geojson",
+        "municipalboundaries": "https://arcgis.dvrpc.org/portal/rest/services/Boundaries/MunicipalBoundaries/FeatureServer/0/query?where=dvrpc_reg='Yes'&outFields=co_name,mun_name&outSR=26918&f=geojson",
         "countyboundaries": "https://arcgis.dvrpc.org/portal/rest/services/Boundaries/CountyBoundaries/FeatureServer/0/query?where=state_fips='34'&outFields=co_name&outSR=26918&f=geojson",
-        "crash_newjersey": "https://arcgis.dvrpc.org/portal/rest/services/Transportation/CRASH_NewJersey/FeatureServer/0/query?where=1=1&outFields=casenumber,countyname,sri_std_rte_identifier_,newmp,latitude,longitude,totalkilled,major_injury&outSR=26918&f=geojson",
+        "crash_newjersey": "https://arcgis.dvrpc.org/portal/rest/services/Transportation/CRASH_NewJersey/FeatureServer/0/query?where=1=1&outFields=casenumber,countyname,municipalityname,sri_std_rte_identifier_,newmp,latitude,longitude,totalkilled,major_injury&outSR=26918&f=geojson",
         "crash_nj_flag": "https://arcgis.dvrpc.org/portal/rest/services/Transportation/CRASH_NJ_Flag/FeatureServer/0/query?where=1=1&outFields=casenumber,fatal_or_maj_inj,injury,pedestrian,bicycle&f=json",
         "njdot_lrs": "https://arcgis.dvrpc.org/portal/rest/services/Transportation/NJDOT_LRS/FeatureServer/0/query?where=1=1&outFields=sri,mp_start,mp_end,route_subtype&returnM=true&outSR=26918&f=json",
         "crash_pennsylvania":"https://arcgis.dvrpc.org/portal/rest/services/Transportation/CRASH_Pennsylvania/FeatureServer/0/query?where=1=1&outFields=crn,county,crash_year,fatal_count,maj_inj_count&outSR=26918&f=geojson",

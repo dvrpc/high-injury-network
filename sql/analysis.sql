@@ -1,89 +1,5 @@
 /*
-merges lrs road network with limited access table
- */
-BEGIN;
-CREATE OR REPLACE VIEW
-  input.nj_lrs_access AS
-WITH
-  uniontables AS (
-    SELECT
-      sri,
-      ROUND(mp_start::NUMERIC, 2) AS interval_start,
-      ROUND(mp_end::NUMERIC, 2) AS interval_end,
-      NULL AS CLASS,
-      route_subtype
-    FROM
-      input.njdot_lrs
-    UNION
-    SELECT
-      la.sri,
-      ROUND(la.mp_start::NUMERIC, 2) AS mp_start,
-      ROUND(la.mp_end::NUMERIC, 2) AS mp_end,
-      la.class,
-      lrs.route_subtype
-    FROM
-      input.nj_limitedaccess la
-      LEFT JOIN input.njdot_lrs lrs ON la.sri = lrs.sri
-      AND ROUND(la.mp_start::NUMERIC, 2) >= ROUND(lrs.mp_start::NUMERIC, 2)
-      AND ROUND(la.mp_end::NUMERIC, 2) <= ROUND(lrs.mp_end::NUMERIC, 2)
-  ),
-  merge_lrs_la AS (
-    SELECT
-      sri,
-      interval_start AS mp_start,
-      COALESCE(
-        LEAD(interval_start) OVER (
-          PARTITION BY
-            sri
-          ORDER BY
-            interval_start
-        ),
-        interval_end
-      ) AS mp_end,
-      LEAD(interval_start) OVER (
-        PARTITION BY
-          sri
-        ORDER BY
-          interval_start
-      ) AS LEAD,
-      CLASS,
-      route_subtype
-    FROM
-      uniontables
-  ),
-  mess AS (
-    SELECT
-      merge_lrs_la.sri,
-      merge_lrs_la.mp_start,
-      merge_lrs_la.mp_end,
-      merge_lrs_la.class,
-      merge_lrs_la.route_subtype
-    FROM
-      merge_lrs_la
-    WHERE
-      merge_lrs_la.mp_start <> merge_lrs_la.mp_end
-    ORDER BY
-      merge_lrs_la.sri,
-      merge_lrs_la.mp_start
-  )
-SELECT
-  a.sri,
-  a.mp_start,
-  a.mp_end,
-  CASE
-    WHEN a.mp_start = ROUND(og.mp_start::NUMERIC, 2)
-    AND a.mp_end = ROUND(og.mp_end::NUMERIC, 2) THEN og.class
-    ELSE a.class
-  END AS CLASS,
-  a.route_subtype
-FROM
-  mess a
-  FULL JOIN input.nj_limitedaccess og ON a.sri = og.sri
-  AND a.mp_start >= ROUND(og.mp_start::NUMERIC, 2)
-  AND a.mp_end <= ROUND(og.mp_end::NUMERIC, 2)
-COMMIT;
-/*
-query nj crash data for KSI and bike/ped
+query nj crash data for KSI and bike/ped (eliminates Trenton City)
  */
 BEGIN;
 CREATE OR REPLACE VIEW
@@ -107,9 +23,10 @@ WITH
       input.crash_newjersey cnj
       JOIN input.crash_nj_flag cnf ON cnj.casenumber = cnf.casenumber
     WHERE
-      cnf.fatal_or_maj_inj = 'True'
+      (cnf.fatal_or_maj_inj = 'True'
       OR cnf.pedestrian = 'True'
-      OR cnf.bicycle = 'True'
+      OR cnf.bicycle = 'True')
+      AND cnj.municipalityname not like ('%TRENTON%')
   ),
   -- adds sri/mp to locations with just a lat/long snapping to closest road within 10m 
   nj_lat_long AS (
@@ -135,7 +52,7 @@ WITH
       (ST_LineLocatePoint(lrs.geometry, nj.geom) * (lrs.mp_end - lrs.mp_start)) + lrs.mp_start AS mp
     FROM
       nj_lat_long nj
-      JOIN INPUT.njdot_lrs lrs ON ST_DWithin (nj.geom, lrs.geometry, 10)
+      JOIN input.njdot_lrs lrs ON ST_DWithin (nj.geom, lrs.geometry, 10)
     ORDER BY
       nj.geom,
       ST_Distance(nj.geom, lrs.geometry)
