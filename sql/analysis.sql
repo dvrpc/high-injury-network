@@ -18,7 +18,8 @@ WITH
       cnf.fatal_or_maj_inj,
       cnf.injury,
       cnf.pedestrian,
-      cnf.bicycle
+      cnf.bicycle,
+      cnf.intersection
     FROM
       input.crash_newjersey cnj
       JOIN input.crash_nj_flag cnf ON cnj.casenumber = cnf.casenumber
@@ -72,7 +73,8 @@ SELECT
   njc.fatal_or_maj_inj,
   njc.injury,
   njc.pedestrian,
-  njc.bicycle
+  njc.bicycle,
+  njc.intersection
 FROM
   queried_crashes njc
   FULL JOIN append_missing a ON njc.casenumber = a.casenumber;
@@ -346,6 +348,7 @@ SELECT
 	fpa.fatal_or_susp_serious_inj,
 	fpa.bicycle,
 	fpa.pedestrian,
+  fpa.intersection,
 	rpa.adj_rdwy_seq,
 	CASE
 		WHEN length(rpa.county) = 1 THEN '0'::text || rpa.county
@@ -407,6 +410,7 @@ SELECT
 	pc.fatal_or_susp_serious_inj,
 	pc.bicycle,
 	pc.pedestrian,
+  pc.intersection,
 	pc.adj_rdwy_seq,
 	pc.county,
 	pc.route,
@@ -452,6 +456,7 @@ SELECT DISTINCT ON (pc.geom)
 	pc.fatal_or_susp_serious_inj,
 	pc.bicycle,
 	pc.pedestrian,
+  pc.intersection,
 	pc.adj_rdwy_seq,
 	pc.county,
 	pc.route,

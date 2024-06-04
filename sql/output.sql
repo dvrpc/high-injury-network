@@ -315,6 +315,7 @@ SELECT
     c.injury,
     c.pedestrian,
     c.bicycle,
+    c.intersection,
     ST_Force2D(ST_StartPoint (
         ST_LineSubstring (
             rn.geometry,
@@ -357,7 +358,8 @@ WITH
             fpa.injury,
             fpa.fatal_or_susp_serious_inj,
             fpa.bicycle,
-            fpa.pedestrian
+            fpa.pedestrian,
+            fpa.intersection
         FROM
             input.crash_pennsylvania cp
             JOIN input.crash_pa_flag fpa ON fpa.crn = cp.crn
@@ -392,7 +394,8 @@ WITH
             ms.injury,
             ms.fatal_or_susp_serious_inj,
             ms.bicycle,
-            ms.pedestrian
+            ms.pedestrian,
+            ms.intersection
         FROM
             missing_crashes ms
             JOIN (
@@ -425,6 +428,7 @@ SELECT
     fatal_or_susp_serious_inj,
     bicycle,
     pedestrian,
+    intersection,
     0 AS LOCAL
 FROM
     output.pa_ksi_bp_crashes

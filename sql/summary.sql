@@ -1,3 +1,5 @@
+-- One off summaries of data (not required to run for RHIN generation)
+-----------------------------------------------------
 -- NJ total mapped ksi
 WITH
   queried_crashes AS (
@@ -19,9 +21,10 @@ WITH
       input.crash_newjersey cnj
       JOIN input.crash_nj_flag cnf ON cnj.casenumber = cnf.casenumber
     WHERE
-      cnf.fatal_or_maj_inj = 'True'
+      (cnf.fatal_or_maj_inj = 'True'
       OR cnf.pedestrian = 'True'
-      OR cnf.bicycle = 'True'
+      OR cnf.bicycle = 'True')
+      AND cnj.municipalityname not like ('%TRENTON%')
   ),
   -- adds sri/mp to locations with just a lat/long snapping to closest road within 10m 
   nj_lat_long AS (
@@ -222,5 +225,300 @@ SELECT
   SUM(window_to - window_from) * 0.0001893939 AS miles
 FROM
   a
+  
+-----------------------------------------------------
+-- NJ intersection count on HIN
+with a as (
+select
+	c.*,
+	h.hin_id
+from
+	output.nj_ksi_bp_crashes c
+join output.nj_ksi_hin h on
+	c.sri = h.sri
+	and (c.mp between h.window_from and h.window_to)
+where
+	c.fatal_or_maj_inj = 'True'
+	and h.class = 'Limited Access'
+	or h.route_subtype not in (1, 4)
+),
+b as (
+select
+	hin_id,
+	count(*) as count
+from
+	a
+where
+	a.intersection = 'True'
+group by
+	hin_id,
+	sri,
+	mp)
+select
+	sum(count)
+from
+	b
 
+-----------------------------------------------------
+	-- PA intersection count on HIN
+with a as (
+	select
+		c.*,
+		h.hin_id
+	from
+		output.pa_ksi_bp_crashes c
+	join output.pa_ksi_hin h on
+		c.id = h.id
+		and (c.cum_offset between h.window_from and h.window_to)
+	where
+		(c.major_injury = 1
+			or fatal = 1)
+		and h.access_ctr != '1'
+),
+	b as (
+	select
+		hin_id,
+		count(*) as count
+	from
+		a
+	where
+		a.intersection = 1
+	group by
+		hin_id,
+		id,
+		cum_offset)
+select
+	sum(count)
+from
+	b
 
+	-- PA intersection count on local HIN
+with
+  missing_crashes as (
+	select
+		cp.geometry as geom,
+		cp.crn,
+		cp.crash_year,
+		cp.fatal_count,
+		cp.maj_inj_count,
+		fpa.major_injury,
+		fpa.fatal,
+		fpa.injury,
+		fpa.fatal_or_susp_serious_inj,
+		fpa.bicycle,
+		fpa.pedestrian,
+		fpa.intersection
+	from
+		input.crash_pennsylvania cp
+	join
+    input.crash_pa_flag fpa
+  on
+		fpa.crn = cp.crn
+	where
+		cp.crn not in (
+		-- crashes not mapped with RMS
+		select
+			crn
+		from
+			output.pa_ksi_bp_crashes)
+		and cp.crash_year between 2018 and 2022
+		and (fpa.major_injury = 1
+			or fpa.fatal = 1)
+		and ST_ISEMPTY(cp.geometry) is false),
+	pa_lr_ksi_only as (
+	select
+		distinct
+  on
+		(ms.geom) ms.geom,
+		ms.crn,
+		ms.crash_year,
+		ms.fatal_count,
+		ms.maj_inj_count,
+		ms.major_injury,
+		ms.fatal,
+		ms.injury,
+		ms.fatal_or_susp_serious_inj,
+		ms.bicycle,
+		ms.pedestrian,
+		ms.intersection,
+		lr.cty_code,
+		lr.lr_id,
+		(ST_LineLocatePoint(lr.geometry,
+		ms.geom) * (lr.cum_offset_end - lr.cum_offset_bgn)) + lr.cum_offset_bgn as cum_offset
+	from
+		missing_crashes ms
+	join (
+		select
+			*
+		from
+			input.padot_localroads
+		where
+			lr_id is not null) lr
+  on
+		ST_DWITHIN(ms.geom,
+		lr.geometry,
+		10)
+	order by
+		ms.geom,
+		ST_DISTANCE(ms.geom,
+		lr.geometry)),
+	a as (
+	select
+		c.*,
+		h.hin_id
+	from
+		pa_lr_ksi_only c
+	join output.pa_lr_ksi_hin h on
+		c.lr_id = h.lr_id
+		and (c.cum_offset between h.window_from and h.window_to)),
+	b as (
+	select
+		hin_id,
+		count(*) as count
+	from
+		a
+	where
+		a.intersection = 1
+	group by
+		hin_id,
+		lr_id,
+		cum_offset)
+select
+	sum(count)
+from
+	b
+
+-----------------------------------------------------
+-- pa intersection with lane count/aadt/urban summary
+with a as (
+select
+		c.*,
+		h.hin_id
+from
+		output.pa_ksi_bp_crashes c
+join output.pa_ksi_hin h on
+		c.id = h.id
+	and (c.cum_offset between h.window_from and h.window_to)
+where
+		(c.major_injury = 1
+		or fatal = 1)
+	and c.intersection = 1
+	and h.access_ctr != '1'
+),
+b as(
+select
+		a.hin_id,
+		a.id,
+		a.cum_offset,
+		count(a.*)
+from
+		a
+group by
+		a.hin_id,
+	 	a.id,
+	 	a.cum_offset), 	
+rms as (
+select
+	concat(cty_code,
+	st_rt_no,
+	side_ind) as id,
+	seg_no,
+	cum_offset,
+	cum_offs_1,
+	case
+		when dir_ind != 'B' then lane_cnt * 2
+		else lane_cnt
+	end as lane_cnt,
+	urban_rura,
+	case
+		when dir_ind != 'B' then cur_aadt * 2
+		else cur_aadt
+	end as cur_aadt
+from
+	input.padot_rms
+order by
+	(concat(cty_code,
+	st_rt_no,
+	side_ind)),
+	cum_offset),
+joined as (
+select
+	b.*,
+	rms.seg_no,
+	rms.lane_cnt,
+	rms.urban_rura,
+	rms.cur_aadt
+from
+	b
+left join rms on
+	b.id = rms.id
+	and (b.cum_offset >= rms.cum_offset
+		and b.cum_offset < rms.cum_offs_1))
+select
+	count(*)
+from
+	joined
+where
+	lane_cnt >= 4
+	and cur_aadt >= 9000
+	--and id not like '67%'
+
+-- nj intersection with lane count/aadt/urban  (requires SLD tables to be loaded into db)
+with a as (
+select
+	c.*,
+	h.hin_id
+from
+	output.nj_ksi_bp_crashes_wtrenton c
+join output.nj_ksi_hin_wtrenton h on
+	c.sri = h.sri
+	and (c.mp between h.window_from and h.window_to)
+where
+	(c.fatal_or_maj_inj = 'True'
+		and c.intersection = 'True')
+	and (h.class != 'Limited Access'
+		or h.route_subtype not in (1, 4))
+),
+b as (
+select
+	sri,
+	mp
+from
+	a
+group by
+	sri,
+	mp),
+joined as (
+select
+	b.*,
+	aadt.descr as aadt,
+	case
+		when h."type" = 1 then l.lane_cnt * 2
+		else lane_cnt
+	end as lane_cnt,
+	u.is_urban
+from
+	b
+left join input.dbo_ln_aadt_flow aadt on
+	b.sri = aadt.sri
+	and b.mp >= aadt.mp_start
+	and b.mp < aadt.mp_end
+left join input.dbo_ln_lane_count l on
+	b.sri = l.sri
+	and b.mp >= l.mp_start
+	and b.mp < l.mp_end
+left join input.dbo_ln_urban_code u on
+	b.sri = u.sri
+	and b.mp >= u.mp_start
+	and b.mp < u.mp_end
+left join input.dbo_ln_highway_type h on
+	b.sri = h.sri
+	and b.mp >= h.mp_start
+	and b.mp < h.mp_end)
+	select
+	count(*)
+from
+	joined
+where
+	lane_cnt >= 4
+	and aadt >= 9000
