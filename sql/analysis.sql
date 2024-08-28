@@ -1,110 +1,83 @@
 /*
-merges lrs road network with limited access table
+query nj crash data for KSI and bike/ped (eliminates Trenton City)
  */
 BEGIN;
 CREATE OR REPLACE VIEW
-  input.nj_lrs_access AS
+  output.nj_ksi_bp_crashes AS
 WITH
-  uniontables AS (
+  queried_crashes AS (
     SELECT
-      sri,
-      ROUND(mp_start::NUMERIC, 2) AS interval_start,
-      ROUND(mp_end::NUMERIC, 2) AS interval_end,
-      NULL AS CLASS,
-      route_subtype
+      cnj.geometry AS geom,
+      cnj.casenumber,
+      cnj.sri_std_rte_identifier_ AS sri,
+      ROUND(CAST(cnj.newmp AS NUMERIC), 2) AS mp,
+      cnj.latitude,
+      cnj.longitude,
+      cnj.totalkilled,
+      cnj.major_injury::NUMERIC,
+      cnf.fatal_or_maj_inj,
+      cnf.injury,
+      cnf.pedestrian,
+      cnf.bicycle,
+      cnf.intersection
     FROM
-      input.njdot_lrs
-    UNION
-    SELECT
-      la.sri,
-      ROUND(la.mp_start::NUMERIC, 2) AS mp_start,
-      ROUND(la.mp_end::NUMERIC, 2) AS mp_end,
-      la.class,
-      lrs.route_subtype
-    FROM
-      input.nj_limitedaccess la
-      LEFT JOIN input.njdot_lrs lrs ON la.sri = lrs.sri
-      AND ROUND(la.mp_start::NUMERIC, 2) >= ROUND(lrs.mp_start::NUMERIC, 2)
-      AND ROUND(la.mp_end::NUMERIC, 2) <= ROUND(lrs.mp_end::NUMERIC, 2)
-  ),
-  merge_lrs_la AS (
-    SELECT
-      sri,
-      interval_start AS mp_start,
-      COALESCE(
-        LEAD(interval_start) OVER (
-          PARTITION BY
-            sri
-          ORDER BY
-            interval_start
-        ),
-        interval_end
-      ) AS mp_end,
-      LEAD(interval_start) OVER (
-        PARTITION BY
-          sri
-        ORDER BY
-          interval_start
-      ) AS LEAD,
-      CLASS,
-      route_subtype
-    FROM
-      uniontables
-  ),
-  mess AS (
-    SELECT
-      merge_lrs_la.sri,
-      merge_lrs_la.mp_start,
-      merge_lrs_la.mp_end,
-      merge_lrs_la.class,
-      merge_lrs_la.route_subtype
-    FROM
-      merge_lrs_la
+      input.crash_newjersey cnj
+      JOIN input.crash_nj_flag cnf ON cnj.casenumber = cnf.casenumber
     WHERE
-      merge_lrs_la.mp_start <> merge_lrs_la.mp_end
+      (cnf.fatal_or_maj_inj = 'True'
+      OR cnf.pedestrian = 'True'
+      OR cnf.bicycle = 'True')
+      AND cnj.municipalityname not like ('%TRENTON%')
+  ),
+  -- adds sri/mp to locations with just a lat/long snapping to closest road within 10m 
+  nj_lat_long AS (
+    SELECT
+      cnj.casenumber,
+      ST_Transform(ST_SetSRID(ST_MakePoint((longitude * -1), latitude), 4326), 26918) AS geom
+    FROM
+      queried_crashes cnj
+    WHERE
+      (
+        sri IS NULL
+        OR mp IS NULL
+      )
+      AND (
+        latitude IS NOT NULL
+        AND longitude IS NOT NULL
+      )
+  ),
+  append_missing AS (
+    SELECT DISTINCT
+      ON (nj.geom) nj.casenumber,
+      lrs.sri,
+      (ST_LineLocatePoint(lrs.geometry, nj.geom) * (lrs.mp_end - lrs.mp_start)) + lrs.mp_start AS mp
+    FROM
+      nj_lat_long nj
+      JOIN input.njdot_lrs lrs ON ST_DWithin (nj.geom, lrs.geometry, 10)
     ORDER BY
-      merge_lrs_la.sri,
-      merge_lrs_la.mp_start
+      nj.geom,
+      ST_Distance(nj.geom, lrs.geometry)
   )
 SELECT
-  a.sri,
-  a.mp_start,
-  a.mp_end,
+  njc.casenumber,
   CASE
-    WHEN a.mp_start = ROUND(og.mp_start::NUMERIC, 2)
-    AND a.mp_end = ROUND(og.mp_end::NUMERIC, 2) THEN og.class
-    ELSE a.class
-  END AS CLASS,
-  a.route_subtype
+    WHEN njc.casenumber IN (SELECT a.casenumber FROM append_missing a) THEN a.sri
+    ELSE njc.sri
+  END AS sri,
+  CASE
+    WHEN njc.casenumber IN (SELECT a.casenumber FROM append_missing a) THEN a.mp
+    ELSE njc.mp
+  END AS mp,
+  njc.totalkilled,
+  njc.major_injury,
+  njc.fatal_or_maj_inj,
+  njc.injury,
+  njc.pedestrian,
+  njc.bicycle,
+  njc.intersection
 FROM
-  mess a
-  FULL JOIN input.nj_limitedaccess og ON a.sri = og.sri
-  AND a.mp_start >= ROUND(og.mp_start::NUMERIC, 2)
-  AND a.mp_end <= ROUND(og.mp_end::NUMERIC, 2)
-COMMIT;
-/*
-query nj crash data for KSI and bike/ped
- */
-BEGIN;
-CREATE OR REPLACE VIEW output.nj_ksi_bp_crashes AS
-SELECT
-  cnj.geometry AS geom,
-  cnj.casenumber,
-  cnj.sri_std_rte_identifier_ AS sri,
-  ROUND(CAST(cnj.newmp AS NUMERIC), 2) AS mp,
-  cnj.totalkilled,
-  cnj.major_injury::numeric,
-  cnf.fatal_or_maj_inj,
-  cnf.injury,
-  cnf.pedestrian,
-  cnf.bicycle
-FROM
-  input.crash_newjersey cnj
-  JOIN input.crash_nj_flag cnf ON cnj.casenumber = cnf.casenumber
-WHERE
-  cnf.fatal_or_maj_inj = 'True'
-  OR (cnf.injury = 'True' AND cnf.pedestrian = 'True')
-  OR (cnf.injury = 'True' AND cnf.bicycle = 'True'); 
+  queried_crashes njc
+  FULL JOIN append_missing a ON njc.casenumber = a.casenumber;
 COMMIT;
 /*
 creating nj .5 mile sliding window segments and summarizing crash data for those windows
@@ -375,6 +348,7 @@ SELECT
 	fpa.fatal_or_susp_serious_inj,
 	fpa.bicycle,
 	fpa.pedestrian,
+  fpa.intersection,
 	rpa.adj_rdwy_seq,
 	CASE
 		WHEN length(rpa.county) = 1 THEN '0'::text || rpa.county
@@ -436,6 +410,7 @@ SELECT
 	pc.fatal_or_susp_serious_inj,
 	pc.bicycle,
 	pc.pedestrian,
+  pc.intersection,
 	pc.adj_rdwy_seq,
 	pc.county,
 	pc.route,
@@ -481,6 +456,7 @@ SELECT DISTINCT ON (pc.geom)
 	pc.fatal_or_susp_serious_inj,
 	pc.bicycle,
 	pc.pedestrian,
+  pc.intersection,
 	pc.adj_rdwy_seq,
 	pc.county,
 	pc.route,
@@ -1160,100 +1136,6 @@ GROUP BY
   a.lr_id,
   a.window_from,
   a.window_to;
-COMMIT;
--- all mappable KSI view (not really used but for reference)
-BEGIN;
-CREATE OR REPLACE VIEW
-  output.pa_mappable_ksi AS
-WITH
-  missing_crashes AS (
-    SELECT
-      cp.geometry AS geom,
-      cp.crn,
-      cp.crash_year,
-      cp.fatal_count,
-      cp.maj_inj_count,
-      fpa.major_injury,
-      fpa.fatal,
-      fpa.injury,
-      fpa.fatal_or_susp_serious_inj,
-      fpa.bicycle,
-      fpa.pedestrian
-    FROM
-      input.crash_pennsylvania cp
-      JOIN input.crash_pa_flag fpa ON fpa.crn = cp.crn
-    WHERE
-      NOT (
-        cp.crn IN (
-          SELECT
-            pa_ksi_bp_crashes.crn
-          FROM
-            output.pa_ksi_bp_crashes
-        )
-      )
-      AND (cp.crash_year between 2018 AND 2022)
-      AND (fpa.major_injury = 1 OR fpa.fatal = 1
-      )
-      AND st_isempty (cp.geometry) IS FALSE
-  ),
-  crashes AS (
-    SELECT DISTINCT
-      ON (ms.geom) ms.geom,
-      ms.crn,
-      ms.crash_year,
-      ms.fatal_count,
-      ms.maj_inj_count,
-      ms.major_injury,
-      ms.fatal,
-      ms.injury,
-      ms.fatal_or_susp_serious_inj,
-      ms.bicycle,
-      ms.pedestrian,
-      lr.cty_code,
-      lr.lr_id,
-      ST_LineLocatePoint(lr.geometry, ms.geom) * (lr.cum_offset_end - lr.cum_offset_bgn)::DOUBLE PRECISION + lr.cum_offset_bgn::DOUBLE PRECISION AS cum_offset
-    FROM
-      missing_crashes ms
-      JOIN (
-        SELECT
-          padot_localroads.geometry,
-          padot_localroads.cty_code,
-          padot_localroads.lr_id,
-          padot_localroads.segment_number,
-          padot_localroads.cum_offset_bgn,
-          padot_localroads.cum_offset_end
-        FROM
-          input.padot_localroads
-        WHERE
-          padot_localroads.lr_id IS NOT NULL
-      ) lr ON ST_DWITHIN(ms.geom, lr.geometry, 10::DOUBLE PRECISION)
-    ORDER BY
-      ms.geom,
-      (ST_DISTANCE(ms.geom, lr.geometry))
-  ),
-  all_crashes AS (
-    SELECT
-      crashes.cty_code,
-      crashes.crn
-    FROM
-      crashes
-    UNION
-    SELECT
-      c.county AS cty_code,
-      c.crn
-    FROM
-      output.pa_ksi_bp_crashes c
-    WHERE
-      c.fatal = 1
-      OR c.major_injury = 1
-  )
-SELECT
-  all_crashes.cty_code,
-  COUNT(all_crashes.crn) AS COUNT
-FROM
-  all_crashes
-GROUP BY
-  all_crashes.cty_code;
 COMMIT;
 /*
 PA HSNS Overlap Stat
