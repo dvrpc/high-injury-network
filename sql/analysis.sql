@@ -13,6 +13,7 @@ WITH
       ROUND(CAST(cnj.newmp AS NUMERIC), 2) AS mp,
       cnj.latitude,
       cnj.longitude,
+      cnj.crashtypecode,
       cnj.totalkilled,
       cnj.major_injury::NUMERIC,
       cnf.fatal_or_maj_inj,
@@ -24,9 +25,8 @@ WITH
       input.crash_newjersey cnj
       JOIN input.crash_nj_flag cnf ON cnj.casenumber = cnf.casenumber
     WHERE
-      (cnf.fatal_or_maj_inj = 'True'
-      OR cnf.pedestrian = 'True'
-      OR cnf.bicycle = 'True')
+      (cnj.crashtypecode IN ('13','14')) OR -- more records than just flag table for bike/ped
+      (cnf.fatal_or_maj_inj = 'True')
       AND cnj.municipalityname not like ('%TRENTON%')
   ),
   -- adds sri/mp to locations with just a lat/long snapping to closest road within 10m 
@@ -68,6 +68,7 @@ SELECT
     WHEN njc.casenumber IN (SELECT a.casenumber FROM append_missing a) THEN a.mp
     ELSE njc.mp
   END AS mp,
+  njc.crashtypecode,
   njc.totalkilled,
   njc.major_injury,
   njc.fatal_or_maj_inj,
@@ -238,7 +239,7 @@ WITH
     FROM
       output.nj_ksi_bp_crashes
     WHERE
-      pedestrian = 'True' or bicycle = 'True'
+      crashtypecode IN ('13','14')
   ),
   hin AS (
     SELECT

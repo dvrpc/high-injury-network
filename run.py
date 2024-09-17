@@ -22,9 +22,7 @@ gap = 0.47343
 crashcount = 2
 
 db.create_database(dbname)
-
 db.create_schemas(dbname, schemas)
-
 db.create_postgis_extension(dbname)
 
 load.csv_tables(dbname, 'input', source_path)
