@@ -309,6 +309,7 @@ SELECT
     c.casenumber,
     c.sri,
     c.mp,
+    c.crashtypecode,
     c.totalkilled,
     c.major_injury,
     c.fatal_or_maj_inj,
@@ -321,15 +322,15 @@ SELECT
             rn.geometry,
             GREATEST(
                 CASE
-                    WHEN c.mp::NUMERIC <= rn.mp_start::NUMERIC THEN 0
-                    ELSE (c.mp::NUMERIC - rn.mp_start::NUMERIC) / (rn.mp_end::NUMERIC - rn.mp_start::NUMERIC)
+                    WHEN c.mp::NUMERIC <= ROUND(CAST(rn.mp_start AS NUMERIC), 2) THEN 0
+                    ELSE (c.mp::NUMERIC - ROUND(CAST(rn.mp_start AS NUMERIC), 2)) / (ROUND(CAST(rn.mp_end AS NUMERIC), 2) - ROUND(CAST(rn.mp_start AS NUMERIC), 2))
                 END,
                 0
             ),
             LEAST(
                 CASE
-                    WHEN c.mp::NUMERIC >= rn.mp_end::NUMERIC THEN 1
-                    ELSE (c.mp::NUMERIC - rn.mp_start::NUMERIC) / (rn.mp_end::NUMERIC - rn.mp_start::NUMERIC)
+                    WHEN c.mp::NUMERIC >= ROUND(CAST(rn.mp_end AS NUMERIC), 2) THEN 1
+                    ELSE (c.mp::NUMERIC - ROUND(CAST(rn.mp_start AS NUMERIC), 2)) / (ROUND(CAST(rn.mp_end AS NUMERIC), 2) - ROUND(CAST(rn.mp_start AS NUMERIC), 2))
                 END,
                 1
             )
@@ -338,7 +339,7 @@ SELECT
 FROM
     output.nj_ksi_bp_crashes c
     JOIN input.njdot_lrs rn ON c.sri = rn.sri
-    AND c.mp BETWEEN rn.mp_start AND rn.mp_end;
+    AND ROUND(CAST(c.mp AS NUMERIC), 2) BETWEEN ROUND(CAST(rn.mp_start AS NUMERIC), 2) AND ROUND(CAST(rn.mp_end AS NUMERIC), 2);;
 COMMIT;
 -- PA crashes mapped
 BEGIN;
