@@ -25,8 +25,8 @@ WITH
       input.crash_newjersey cnj
       JOIN input.crash_nj_flag cnf ON cnj.casenumber = cnf.casenumber
     WHERE
-      (cnj.crashtypecode IN ('13','14')) OR -- more records than just flag table for bike/ped
-      (cnf.fatal_or_maj_inj = 'True')
+     ((cnj.crashtypecode IN ('13','14')) OR -- more records than just flag table for bike/ped
+      (cnf.fatal_or_maj_inj = 'True'))
       AND cnj.municipalityname not like ('%TRENTON%')
   ),
   -- adds sri/mp to locations with just a lat/long snapping to closest road within 10m 
