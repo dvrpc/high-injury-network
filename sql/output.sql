@@ -345,98 +345,50 @@ COMMIT;
 BEGIN;
 CREATE TABLE
     output.pa_crashes_gis AS
-WITH
-    missing_crashes AS (
-        SELECT
-            cp.geometry AS geom,
-            cp.crn,
-            cp.county,
-            cp.crash_year,
-            cp.fatal_count,
-            cp.maj_inj_count,
-            fpa.major_injury,
-            fpa.fatal,
-            fpa.injury,
-            fpa.fatal_or_susp_serious_inj,
-            fpa.bicycle,
-            fpa.pedestrian,
-            fpa.intersection
-        FROM
-            input.crash_pennsylvania cp
-            JOIN input.crash_pa_flag fpa ON fpa.crn = cp.crn
-        WHERE
-            NOT (
-                cp.crn IN (
-                    SELECT
-                        pa_ksi_bp_crashes.crn
-                    FROM
-                        output.pa_ksi_bp_crashes
-                )
-            )
-            AND (cp.crash_year BETWEEN 2018 AND 2022)
-            AND (
-                fpa.major_injury = 1
-                OR fpa.fatal = 1
-                OR fpa.bicycle = 1
-                OR fpa.pedestrian = 1
-            )
-            AND st_isempty (cp.geometry) IS FALSE
-    ),
-    LOCAL AS (
-        SELECT DISTINCT
-            ON (ms.geom) ms.geom,
-            ms.crn,
-            ms.county,
-            ms.crash_year,
-            ms.fatal_count,
-            ms.maj_inj_count,
-            ms.major_injury,
-            ms.fatal,
-            ms.injury,
-            ms.fatal_or_susp_serious_inj,
-            ms.bicycle,
-            ms.pedestrian,
-            ms.intersection
-        FROM
-            missing_crashes ms
-            JOIN (
-                SELECT
-                    padot_localroads.geometry,
-                    padot_localroads.cty_code,
-                    padot_localroads.lr_id,
-                    padot_localroads.segment_number,
-                    padot_localroads.cum_offset_bgn,
-                    padot_localroads.cum_offset_end
-                FROM
-                    input.padot_localroads
-                WHERE
-                    padot_localroads.lr_id IS NOT NULL
-            ) lr ON ST_Dwithin(ms.geom, lr.geometry, 10::DOUBLE PRECISION)
-        ORDER BY
-            ms.geom,
-            (ST_Distance(ms.geom, lr.geometry))
-    )
-SELECT
-    geom,
-    crn,
-    county::int,
-    crash_year,
-    fatal_count,
-    maj_inj_count,
-    major_injury,
-    fatal,
-    injury,
-    fatal_or_susp_serious_inj,
-    bicycle,
-    pedestrian,
-    intersection,
-    0 AS LOCAL
-FROM
+SELECT 
+    geom, 
+    crn, 
+    crash_year, 
+    fatal_count, 
+    maj_inj_count, 
+    major_injury, 
+    fatal, 
+    injury, 
+    fatal_or_susp_serious_inj, 
+    bicycle, pedestrian, 
+    intersection, 
+    adj_rdwy_seq, 
+    county, 
+    route, 
+    segment, 
+    "offset", 
+    id, 
+    null as lr_id, 
+    cum_offset 
+FROM 
     output.pa_ksi_bp_crashes
 UNION
-SELECT
-    *,
-    1 AS LOCAL
-FROM
-    LOCAL;
+SELECT 
+    geom, 
+    crn, 
+    crash_year, 
+    fatal_count, 
+    maj_inj_count, 
+    major_injury, 
+    fatal, 
+    injury, 
+    fatal_or_susp_serious_inj, 
+    bicycle, 
+    pedestrian, 
+    null as intersection, 
+    null as adj_rdwy_seq, 
+    cty_code as county, 
+    '' as route, 
+    '' as segment, 
+    null as "offset", 
+    '' as id, 
+    lr_id, 
+    cum_offset 
+FROM 
+    output.pa_lr_ksi_bp_crashes
 COMMIT;

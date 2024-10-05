@@ -1,107 +1,39 @@
--- One off summaries of data (not required to run for RHIN generation)
+-- Sample summaries of data (not required to run for RHIN generation)
 -----------------------------------------------------
--- NJ total mapped ksi
-WITH
-  queried_crashes AS (
-    SELECT
-      cnj.geometry AS geom,
-      cnj.casenumber,
-      cnj.countyname,
-      cnj.sri_std_rte_identifier_ AS sri,
-      ROUND(CAST(cnj.newmp AS NUMERIC), 2) AS mp,
-      cnj.latitude,
-      cnj.longitude,
-      cnj.totalkilled,
-      cnj.major_injury::NUMERIC,
-      cnf.fatal_or_maj_inj,
-      cnf.injury,
-      cnf.pedestrian,
-      cnf.bicycle
-    FROM
-      input.crash_newjersey cnj
-      JOIN input.crash_nj_flag cnf ON cnj.casenumber = cnf.casenumber
-    WHERE
-      (cnf.fatal_or_maj_inj = 'True'
-      OR cnf.pedestrian = 'True'
-      OR cnf.bicycle = 'True')
-      AND cnj.municipalityname not like ('%TRENTON%')
-  ),
-  -- adds sri/mp to locations with just a lat/long snapping to closest road within 10m 
-  nj_lat_long AS (
-    SELECT
-      cnj.casenumber,
-      ST_Transform(ST_SetSRID(ST_MakePoint((longitude * -1), latitude), 4326), 26918) AS geom
-    FROM
-      queried_crashes cnj
-    WHERE
-      (
-        sri IS NULL
-        OR mp IS NULL
-      )
-      AND (
-        latitude IS NOT NULL
-        AND longitude IS NOT NULL
-      )
-  ),
-  append_missing AS (
-    SELECT DISTINCT
-      ON (nj.geom) nj.casenumber,
-      lrs.sri,
-      (ST_LineLocatePoint(lrs.geometry, nj.geom) * (lrs.mp_end - lrs.mp_start)) + lrs.mp_start AS mp
-    FROM
-      nj_lat_long nj
-      JOIN INPUT.njdot_lrs lrs ON ST_DWithin (nj.geom, lrs.geometry, 10)
-    ORDER BY
-      nj.geom,
-      ST_Distance(nj.geom, lrs.geometry)
-  ), 
-all_crash as (
+-- NJ Limited Access only KSI crash query 
+WITH crashes AS (
+  SELECT
+    c.*,
+    cn.countyname
+  FROM
+    nj_crashes_gis c
+  LEFT JOIN input.nj_lrs_access lrs ON
+    c.sri = lrs.sri
+    AND c.mp BETWEEN lrs.mp_start AND lrs.mp_end
+  LEFT JOIN input.crash_newjersey cn ON
+    c.casenumber = cn.casenumber
+  WHERE
+    (class NOT LIKE 'Lim%'
+    OR class IS NULL)
+    OR (route_subtype NOT IN (1, 4))
+)
 SELECT
-  njc.casenumber,
-  njc.countyname,
-  CASE
-    WHEN njc.casenumber IN (SELECT a.casenumber FROM append_missing a) THEN a.sri
-    ELSE njc.sri
-  END AS sri,
-  CASE
-    WHEN njc.casenumber IN (SELECT a.casenumber FROM append_missing a) THEN a.mp
-    ELSE njc.mp
-  END AS mp,
-  njc.totalkilled,
-  njc.major_injury,
-  njc.fatal_or_maj_inj,
-  njc.injury,
-  njc.pedestrian,
-  njc.bicycle
-FROM
-  queried_crashes njc
-  FULL JOIN append_missing a ON njc.casenumber = a.casenumber)
-SELECT
-  COUNT(casenumber),
-  UPPER(countyname)
-FROM
-  all_crash
-WHERE
-  (
-    sri IS NOT NULL
-    AND mp IS NOT NULL
-  )
-  AND (fatal_or_maj_inj = 'True')
-GROUP BY
-  UPPER(countyname);
+  UPPER(countyname) AS county,
+  COUNT(DISTINCT CASE WHEN totalkilled > 0 THEN casenumber END) AS K,
+  COUNT(DISTINCT CASE WHEN totalkilled = 0 AND major_injury > 0 THEN casenumber END) AS SI,
+  COUNT(DISTINCT CASE WHEN totalkilled > 0 OR major_injury IS NOT NULL THEN casenumber END) AS KSI
+FROM crashes
+GROUP BY UPPER(countyname)
+ORDER BY UPPER(countyname);
 
--- NJ ksi 2+ road miles
-SELECT
-  SUM(window_to - window_from)
-FROM
-  nj_ksi_hin_gis;
-
--- NJ ksi 2+ road miles by county
-WITH
+-- NJ RHIN miles by county no Limited Access
+ WITH
   a AS (
     SELECT
       ST_Intersection (r.geom, c.geometry) AS segmented_geom,
-      c.co_name
+      c.co_name,
+      class,
+      route_subtype
     FROM
       output.nj_ksi_hin_gis r
       JOIN input.countyboundaries c ON ST_Intersects (r.geom, c.geometry)
@@ -111,86 +43,54 @@ SELECT
   co_name
 FROM
   a
+where 
+(class NOT LIKE 'Lim%' or class is null)
+  OR (route_subtype NOT IN (1, 4))
 GROUP BY
   co_name;
-
--- NJ ksi on 2+ HIN
-SELECT
-  SUM(crashcount)
-FROM
-  output.nj_ksi_hin_gis;
-
--- NJ ksi 2+ road miles without Limited Access roads
-SELECT
-  SUM(window_to - window_from)
-FROM
-  nj_ksi_hin_gis
-WHERE
-  CLASS NOT LIKE 'Lim%'
-  OR route_subtype NOT IN (1, 4);
-
--- NJ ksi 2+ road miles by county without Limited Access roads
-WITH
+  
+ -- NJ RHIN crash count by county no Limited Access
+ WITH
   a AS (
     SELECT
       ST_Intersection (r.geom, c.geometry) AS segmented_geom,
-      c.co_name
+      c.co_name,
+      r.crashcount,
+      class,
+      route_subtype
     FROM
       output.nj_ksi_hin_gis r
       JOIN input.countyboundaries c ON ST_Intersects (r.geom, c.geometry)
-    WHERE
-      r.class NOT LIKE 'Lim%'
-      OR r.route_subtype NOT IN (1, 4)
   )
 SELECT
-  SUM(st_length (segmented_geom)) * 0.0006213712 AS miles,
+  sum(crashcount) as crashcount,
   co_name
 FROM
   a
+where 
+(class NOT LIKE 'Lim%' or class is null)
+  OR (route_subtype NOT IN (1, 4))
 GROUP BY
   co_name;
 
 -----------------------------------------------------
--- PA ksi 2+ road miles by county all RMS
-WITH
-  a AS (
-    SELECT DISTINCT
-      (hin_id),
-      id,
-      window_to,
-      window_from
-    FROM
-      pa_ksi_2_or_more
-  )
+-- PA Limited Access only KSI crash query
+ with crashes as (
+select distinct(c.crn) as id, c.* from output.pa_crashes_gis c LEFT JOIN input.padot_rms pr 
+    ON c.county = pr.cty_code 
+    AND c.route = pr.st_rt_no 
+    AND c.segment = pr.seg_no
+WHERE (access_ctr != '1' OR access_ctr IS NULL)
+)
 SELECT
-  SUM(window_to - window_from) * 0.0001893939 AS miles,
-  LEFT(id, 2) AS cty
-FROM
-  a
-GROUP BY
-  LEFT(id, 2);
+county,
+COUNT(distinct CASE WHEN fatal = 1 THEN crn END) as K,
+COUNT(distinct CASE WHEN fatal = 0 AND major_injury = 1 THEN crn END) as SI,
+COUNT(distinct case when fatal = 1 or major_injury = 1 then crn END) as KSI
+FROM crashes c
+GROUP BY county;
 
--- PA ksi 2+ road miles by county local roads only
-WITH
-  a AS (
-    SELECT DISTINCT
-      (hin_id),
-      window_to,
-      window_from,
-      l.cty_code AS cty
-    FROM
-      pa_lr_ksi_2_or_more pa
-      JOIN input.padot_localroads l ON pa.lr_id = l.lr_id
-  )
-SELECT
-  SUM(window_to - window_from) * 0.0001893939 AS miles,
-  cty
-FROM
-  a
-GROUP BY
-  cty;
-
--- PA ksi 2+ road miles by county RMS without Limited Access roads
+-- PA RMS road RHIN miles no Limited Access
 WITH
   a AS (
     SELECT DISTINCT
@@ -200,7 +100,7 @@ WITH
       window_from,
       access_ctr
     FROM
-      pa_ksi_2_or_more
+      output.pa_bp_hin
   )
 SELECT
   SUM(window_to - window_from) * 0.0001893939 AS miles,
@@ -212,19 +112,72 @@ WHERE
 GROUP BY
   LEFT(id, 2);
 
+-- PA local road RHIN miles 
 WITH
   a AS (
     SELECT DISTINCT
       (hin_id),
       window_to,
-      window_from
+      window_from,
+      pl.cty_code
     FROM
-      pa_lr_bp_2_or_more
+      output.pa_lr_bp_hin h 
+    join 
+      input.padot_localroads pl on h.lr_id = pl.lr_id
   )
-SELECT
+select
+	cty_code,
   SUM(window_to - window_from) * 0.0001893939 AS miles
 FROM
   a
+group by 
+cty_code
+
+-- PA RMS RHIN crash totals no Limited Access
+WITH
+  a AS (
+    SELECT DISTINCT
+      (hin_id),
+      id,
+      window_to,
+      window_from,
+      crashcount,
+      access_ctr
+    FROM
+      output.pa_bp_hin
+  )
+SELECT
+  SUM(crashcount) AS crashcount,
+  LEFT(id, 2) AS cty
+FROM
+  a
+WHERE
+  a.access_ctr != '1'
+GROUP BY
+  LEFT(id, 2);
+  
+
+-- PA Local Road RHIN crash totals
+WITH
+  a AS (
+    SELECT DISTINCT
+      (hin_id),
+      window_to,
+      window_from,
+      crashcount,
+      pl.cty_code
+    FROM
+      output.pa_lr_bp_hin h
+    join 
+      input.padot_localroads pl on h.lr_id = pl.lr_id
+  )
+select
+cty_code,
+  SUM(crashcount) AS crashcount
+FROM
+  a
+GROUP BY
+  cty_code;
   
 -----------------------------------------------------
 -- NJ intersection count on HIN
