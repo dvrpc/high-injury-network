@@ -589,8 +589,7 @@ WITH
     SELECT
       s.id,
       s.window_from,
-      s.window_to,
-      COUNT(c.crn) AS crashcount
+      s.window_to
     FROM
       output.pa_slidingwindow s
       LEFT JOIN pa_ksi_only c ON c.id = s.id
@@ -611,7 +610,6 @@ WITH
       hin.id,
       hin.window_from,
       hin.window_to,
-      hin.crashcount,
       CASE
         WHEN (
           hin.window_from - lag (hin.window_to, 1, 0) OVER (
@@ -621,7 +619,7 @@ WITH
               hin.id,
               hin.window_from
           )
-        ) > (round(:gap,0) * 5280) THEN 1 -- threshold distance to other segments 2500ft
+        ) > (:gap * 5280) THEN 1 -- threshold distance to other segments 2500ft
         ELSE 0
       END AS break
     FROM
@@ -638,7 +636,6 @@ WITH
           find_breaks.id,
           find_breaks.window_from,
           find_breaks.window_to,
-          find_breaks.crashcount,
           find_breaks.break,
           SUM(find_breaks.break) OVER (
             ORDER BY
@@ -697,8 +694,7 @@ WITH
     SELECT
       s.id,
       s.window_from,
-      s.window_to,
-      COUNT(c.crn) AS crashcount
+      s.window_to
     FROM
       output.pa_slidingwindow s
       LEFT JOIN pa_bp_only c ON c.id = s.id
@@ -719,10 +715,9 @@ WITH
       hin.id,
       hin.window_from,
       hin.window_to,
-      hin.crashcount,
       CASE
         WHEN (hin.window_from - lag (hin.window_to, 1, 0) OVER 
-          (PARTITION BY hin.id ORDER BY hin.id, hin.window_from)) > (round(:gap,0) * 5280) THEN 1
+          (PARTITION BY hin.id ORDER BY hin.id, hin.window_from)) > (:gap * 5280) THEN 1
         ELSE 0
       END AS break
     FROM
@@ -739,7 +734,6 @@ WITH
           find_breaks.id,
           find_breaks.window_from,
           find_breaks.window_to,
-          find_breaks.crashcount,
           find_breaks.break,
           SUM(find_breaks.break) OVER (
             ORDER BY
@@ -836,88 +830,98 @@ ORDER BY
   windows.lr_id,
   windows.window_from;
 COMMIT;
+-- PA Local Road Crashes
+BEGIN;
+CREATE OR REPLACE VIEW output.pa_lr_ksi_bp_crashes AS
+WITH
+  missing_crashes AS (
+    SELECT
+      cp.geometry AS geom,
+      cp.crn,
+      cp.crash_year,
+      cp.fatal_count,
+      cp.maj_inj_count,
+      fpa.major_injury,
+      fpa.fatal,
+      fpa.injury,
+      fpa.fatal_or_susp_serious_inj,
+      fpa.bicycle,
+      fpa.pedestrian
+    FROM
+      INPUT.crash_pennsylvania cp
+      JOIN INPUT.crash_pa_flag fpa ON fpa.crn = cp.crn
+    WHERE
+      NOT (
+        cp.crn IN (
+          SELECT
+            pa_ksi_bp_crashes.crn
+          FROM
+            output.pa_ksi_bp_crashes
+        )
+      )
+      AND cp.crash_year >= 2018
+      AND cp.crash_year <= 2022
+      AND (
+        fpa.major_injury = 1
+        OR fpa.fatal = 1
+        OR fpa.bicycle = 1
+        OR fpa.pedestrian = 1
+      )
+      AND st_isempty (cp.geometry) IS FALSE
+  )
+SELECT DISTINCT
+  ON (ms.geom) ms.geom,
+  ms.crn,
+  ms.crash_year,
+  ms.fatal_count,
+  ms.maj_inj_count,
+  ms.major_injury,
+  ms.fatal,
+  ms.injury,
+  ms.fatal_or_susp_serious_inj,
+  ms.bicycle,
+  ms.pedestrian,
+  lr.cty_code,
+  lr.lr_id,
+  st_linelocatepoint (lr.geometry, ms.geom) * (lr.cum_offset_end - lr.cum_offset_bgn)::DOUBLE PRECISION + lr.cum_offset_bgn::DOUBLE PRECISION AS cum_offset
+FROM
+  missing_crashes ms
+  JOIN (
+    SELECT
+      padot_localroads.geometry,
+      padot_localroads.cty_code,
+      padot_localroads.lr_id,
+      padot_localroads.segment_number,
+      padot_localroads.cum_offset_bgn,
+      padot_localroads.cum_offset_end
+    FROM
+      INPUT.padot_localroads
+    WHERE
+      padot_localroads.lr_id IS NOT NULL
+  ) lr ON st_dwithin (ms.geom, lr.geometry, 10::DOUBLE PRECISION)
+ORDER BY
+  ms.geom,
+  (st_distance (ms.geom, lr.geometry));
+COMMIT;
 -- KSI 2+ .5 mile HIN on PA local roads, only for those KSI that didn't map on RMS
 BEGIN;
 CREATE OR REPLACE VIEW output.pa_lr_ksi_hin AS
 WITH
-  missing_crashes AS (
-  SELECT
-    cp.geometry AS geom,
-    cp.crn,
-    cp.crash_year,
-    cp.fatal_count,
-    cp.maj_inj_count,
-    fpa.major_injury,
-    fpa.fatal,
-    fpa.injury,
-    fpa.fatal_or_susp_serious_inj,
-    fpa.bicycle,
-    fpa.pedestrian
-  FROM
-    input.crash_pennsylvania cp
-  JOIN
-    input.crash_pa_flag fpa
-  ON
-    fpa.crn = cp.crn
-  WHERE
-    cp.crn NOT IN ( -- crashes not mapped with RMS
-    SELECT
-      crn
-    FROM
-      output.pa_ksi_bp_crashes)
-    AND cp.crash_year BETWEEN 2018 AND 2022
-    AND (fpa.major_injury = 1
-      OR fpa.fatal = 1
-      --		or fpa.bicycle = 1
-      --		or fpa.pedestrian = 1
-      )
-    AND ST_ISEMPTY(cp.geometry) IS FALSE),
-  pa_lr_ksi_only AS (
-  SELECT
-    DISTINCT
-  ON
-    (ms.geom) ms.geom,
-    ms.crn,
-    ms.crash_year,
-    ms.fatal_count,
-    ms.maj_inj_count,
-    ms.major_injury,
-    ms.fatal,
-    ms.injury,
-    ms.fatal_or_susp_serious_inj,
-    ms.bicycle,
-    ms.pedestrian,
-    lr.cty_code,
-    lr.lr_id,
-    (ST_LineLocatePoint(lr.geometry, ms.geom) * (lr.cum_offset_end - lr.cum_offset_bgn)) + lr.cum_offset_bgn AS cum_offset
-  FROM
-    missing_crashes ms
-  JOIN (
-    SELECT
-      *
-    FROM
-      input.padot_localroads
-    WHERE
-      lr_id IS NOT NULL) lr
-  ON
-    ST_DWITHIN(ms.geom, lr.geometry, 10)
-  ORDER BY
-    ms.geom,
-    ST_DISTANCE(ms.geom, lr.geometry)),
   hin AS (
   SELECT
     s.lr_id,
     s.window_from,
-    s.window_to,
-    COUNT(c.crn) AS crashcount
+    s.window_to
   FROM
     output.pa_lr_slidingwindow s
   LEFT JOIN
-    pa_lr_ksi_only c
+    output.pa_lr_ksi_bp_crashes c
   ON
     c.lr_id = s.lr_id
     AND c.cum_offset >= s.window_from
     AND c.cum_offset <= s.window_to
+  WHERE
+    fatal = 1 OR major_injury = 1
   GROUP BY
     s.lr_id,
     s.window_from,
@@ -932,10 +936,9 @@ WITH
     hin.lr_id,
     hin.window_from,
     hin.window_to,
-    hin.crashcount,
     CASE
       WHEN (hin.window_from - lag (hin.window_to, 1, 0) OVER 
-      (PARTITION BY hin.lr_id ORDER BY hin.lr_id, hin.window_from)) > (round(:gap,0) * 5280) THEN 1 -- threshold distance to other segments 2500ft
+      (PARTITION BY hin.lr_id ORDER BY hin.lr_id, hin.window_from)) > (:gap * 5280) THEN 1 -- threshold distance to other segments 2500ft
     ELSE 0
     END AS break
   FROM
@@ -951,7 +954,6 @@ WITH
           find_breaks.lr_id,
           find_breaks.window_from,
           find_breaks.window_to,
-          find_breaks.crashcount,
           find_breaks.break,
           SUM(find_breaks.break) OVER (
             ORDER BY
@@ -979,11 +981,13 @@ SELECT
 FROM
   agg_segs a
 LEFT JOIN
-  pa_lr_ksi_only c
+  output.pa_lr_ksi_bp_crashes c
 ON
   c.lr_id = a.lr_id
   AND c.cum_offset >= a.window_from
   AND c.cum_offset <= a.window_to
+WHERE
+    fatal = 1 OR major_injury = 1
 GROUP BY
   a.lr_id,
   a.window_from,
@@ -993,80 +997,21 @@ COMMIT;
 BEGIN;
 CREATE OR REPLACE VIEW output.pa_lr_bp_hin AS
 WITH
-  missing_crashes AS (
-  SELECT
-    cp.geometry AS geom,
-    cp.crn,
-    cp.crash_year,
-    cp.fatal_count,
-    cp.maj_inj_count,
-    fpa.major_injury,
-    fpa.fatal,
-    fpa.injury,
-    fpa.fatal_or_susp_serious_inj,
-    fpa.bicycle,
-    fpa.pedestrian
-  FROM
-    input.crash_pennsylvania cp
-  JOIN
-    input.crash_pa_flag fpa
-  ON
-    fpa.crn = cp.crn
-  WHERE
-    cp.crn NOT IN ( -- crashes not mapped with RMS
-    SELECT
-      crn
-    FROM
-      output.pa_ksi_bp_crashes)
-    AND cp.crash_year BETWEEN 2018 AND 2022
-    AND (fpa.bicycle = 1 or fpa.pedestrian = 1)
-    AND ST_ISEMPTY(cp.geometry) IS FALSE),
-  pa_lr_bp_only AS (
-  SELECT
-    DISTINCT
-  ON
-    (ms.geom) ms.geom,
-    ms.crn,
-    ms.crash_year,
-    ms.fatal_count,
-    ms.maj_inj_count,
-    ms.major_injury,
-    ms.fatal,
-    ms.injury,
-    ms.fatal_or_susp_serious_inj,
-    ms.bicycle,
-    ms.pedestrian,
-    lr.cty_code,
-    lr.lr_id,
-    (ST_LineLocatePoint(lr.geometry, ms.geom) * (lr.cum_offset_end - lr.cum_offset_bgn)) + lr.cum_offset_bgn AS cum_offset
-  FROM
-    missing_crashes ms
-  JOIN (
-    SELECT
-      *
-    FROM
-      input.padot_localroads
-    WHERE
-      lr_id IS NOT NULL) lr
-  ON
-    ST_DWITHIN(ms.geom, lr.geometry, 10)
-  ORDER BY
-    ms.geom,
-    ST_DISTANCE(ms.geom, lr.geometry)),
   hin AS (
   SELECT
     s.lr_id,
     s.window_from,
-    s.window_to,
-    COUNT(c.crn) AS crashcount
+    s.window_to
   FROM
     output.pa_lr_slidingwindow s
   LEFT JOIN
-    pa_lr_bp_only c
+    output.pa_lr_ksi_bp_crashes c
   ON
     c.lr_id = s.lr_id
     AND c.cum_offset >= s.window_from
     AND c.cum_offset <= s.window_to
+  WHERE
+    bicycle = 1 OR pedestrian = 1
   GROUP BY
     s.lr_id,
     s.window_from,
@@ -1080,11 +1025,10 @@ WITH
   SELECT
     hin.lr_id,
     hin.window_from,
-    hin.window_to,
-    hin.crashcount,
+    hin.window_to
     CASE
       WHEN (hin.window_from - lag (hin.window_to, 1, 0) OVER 
-      (PARTITION BY hin.lr_id ORDER BY hin.lr_id, hin.window_from)) > (round(:gap,0) * 5280) THEN 1 -- threshold distance to other segments 2500ft
+      (PARTITION BY hin.lr_id ORDER BY hin.lr_id, hin.window_from)) > (:gap * 5280) THEN 1 -- threshold distance to other segments 2500ft
     ELSE 0
     END AS break
   FROM
@@ -1100,7 +1044,6 @@ WITH
           find_breaks.lr_id,
           find_breaks.window_from,
           find_breaks.window_to,
-          find_breaks.crashcount,
           find_breaks.break,
           SUM(find_breaks.break) OVER (
             ORDER BY
@@ -1128,11 +1071,13 @@ SELECT
 FROM
   agg_segs a
 LEFT JOIN
-  pa_lr_bp_only c
+  output.pa_lr_ksi_bp_crashes c
 ON
   c.lr_id = a.lr_id
   AND c.cum_offset >= a.window_from
   AND c.cum_offset <= a.window_to
+WHERE
+    bicycle = 1 OR pedestrian = 1
 GROUP BY
   a.lr_id,
   a.window_from,
