@@ -29,10 +29,10 @@ def create_geojson(dbname, path):
     for table_name in table_names:
         if 'crashes' in table_name:
             gdf = gpd.read_postgis(f"SELECT * FROM output.{table_name} where geom is not null", engine)
+        elif 'rhin' in table_name:
+            gdf = gpd.read_postgis(f"SELECT * FROM output.rhin_gis", engine)
         else:
-            gdf = gpd.read_postgis(f"SELECT * FROM output.{table_name} where st_geometrytype(geom) != 'ST_Point'", engine)
-            gdf = gdf.dissolve('hin_id')
-
+            continue
         output_file = os.path.join(path, f"{table_name}.geojson") 
-        gdf.to_file(output_file, geometry="geometry")
+        gdf.to_file(output_file)
         print(f"Created {output_file} in output folder...\n")
