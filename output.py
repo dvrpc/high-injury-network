@@ -21,7 +21,7 @@ def create_geojson(dbname, path):
     
     connection = engine.connect()
 
-    query = text(f"SELECT table_name FROM information_schema.tables WHERE table_schema = 'output' AND table_name LIKE '%gis%'")
+    query = text(f"SELECT table_name FROM information_schema.tables WHERE table_schema = 'output' AND table_name LIKE '%rhin%'")
 
     tables = connection.execute(query)
     table_names = [table[0] for table in tables]
@@ -30,7 +30,7 @@ def create_geojson(dbname, path):
         if 'crashes' in table_name:
             gdf = gpd.read_postgis(f"SELECT * FROM output.{table_name} where geom is not null", engine)
         elif 'rhin' in table_name:
-            gdf = gpd.read_postgis(f"SELECT * FROM output.rhin_gis", engine)
+            gdf = gpd.read_postgis(f"SELECT * FROM output.{table_name}", engine)
         else:
             continue
         output_file = os.path.join(path, f"{table_name}.geojson") 

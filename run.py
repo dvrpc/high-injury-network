@@ -10,7 +10,7 @@ start_time = time.time()
 
 load_dotenv()
 
-dbname = r"hin"
+dbname = r"hin_v2"
 schemas = ["input", "output"]
 source_path = "./source"
 out_path = "./output"
