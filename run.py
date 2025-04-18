@@ -20,6 +20,7 @@ windowsize = 0.5
 window_increment = 0.01 
 gap = 0.47343 
 crashcount = 2
+start_year = 2018 # analysis runs a 5 year period
 
 db.create_database(dbname)
 db.create_schemas(dbname, schemas)
@@ -33,8 +34,8 @@ urls = urls_config['urls']
 for url_key, url_value in urls.items():
     load.dvrpc_data(dbname, 'input', url_key, url_value, 'EPSG:26918')
 
-db.execute_analysis(dbname, './sql/analysis.sql', windowsize, window_increment, gap, crashcount)
-db.execute_analysis(dbname, './sql/output.sql')
+db.execute_analysis(dbname, './sql/analysis.sql', windowsize, window_increment, gap, crashcount, start_year)
+db.execute_analysis(dbname, './sql/output.sql', start_year)
 
 output.create_geojson(dbname, out_path)
 

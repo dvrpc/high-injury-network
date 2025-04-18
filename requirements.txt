@@ -6,3 +6,4 @@ requests
 shapely
 sqlalchemy
 geoalchemy2
+fiona
