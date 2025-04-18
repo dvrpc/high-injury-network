@@ -74,7 +74,7 @@ def create_postgis_extension(dbname):
     cmpconn.close()
 
 
-def execute_analysis(dbname, sql, windowsize=0.5, window_increment=0.01, gap=0.47343, crashcount=2):
+def execute_analysis(dbname, sql, windowsize=0.5, window_increment=0.01, gap=0.47343, crashcount=2, start_year=2018):
     """
     Executes the analysis sql.  Messy but working....
     """
@@ -96,7 +96,7 @@ def execute_analysis(dbname, sql, windowsize=0.5, window_increment=0.01, gap=0.4
                     if comment_match:
                         comment = comment_match.group(1).strip()
                         print(f"\nSQL: {comment}\n")
-                    connection.execute(text(transaction_block), parameters=dict(windowsize=windowsize,window_increment=window_increment,gap=gap,crashcount=crashcount))
+                    connection.execute(text(transaction_block), parameters=dict(windowsize=windowsize,window_increment=window_increment,gap=gap,crashcount=crashcount,start_year=start_year))
                 except Exception as e:
                     print("Error message:", str(e))
                     break

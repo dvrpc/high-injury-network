@@ -108,7 +108,8 @@ FROM
   input.crash_newjersey njc
   LEFT JOIN all_missing a ON njc.casenumber = a.casenumber
 WHERE
-  RIGHT(njc.crash_date,4) != '2022'; -- adjust years here (2017-2021)
+  CAST(RIGHT(njc.crash_date,4) AS INTEGER) >= :start_year 
+  AND CAST(RIGHT(njc.crash_date,4) AS INTEGER) <= (:start_year + 4);
 COMMIT;
 /*
 creating nj .5 mile sliding window segments and summarizing crash data for those windows
@@ -154,6 +155,7 @@ FROM
   windows
 WHERE
   window_from < road_mp_end
+  AND (class IS NULL OR class != 'Limited Access') AND (route_subtype IS NULL OR route_subtype NOT IN (1,4)) -- removes limited access roads
 ORDER BY
   sri,
   window_from ASC;
@@ -277,7 +279,6 @@ WITH
       agg_segs a
       LEFT JOIN nj_ksi_only c ON c.sri = a.sri AND c.mp >= a.window_from AND c.mp <= a.window_to
       LEFT JOIN input.nj_lrs_access lrs ON a.sri = lrs.sri AND a.window_from >= round(lrs.mp_start::numeric, 2) AND a.window_to <= round(lrs.mp_end::numeric, 2)
-    WHERE (lrs.class IS NULL OR lrs.class != 'Limited Access') AND (lrs.route_subtype IS NULL OR lrs.route_subtype NOT IN (1,4)) -- removes limited access roads
     GROUP BY
       a.sri,
       a.window_from,
@@ -393,7 +394,7 @@ WITH
           ORDER BY
             sri,
             window_from
-        ) > 0.47343 THEN 1 -- threshold distance to other segments 2500ft (0.47343 miles)
+        ) > :gap THEN 1 -- threshold distance to other segments 2500ft (0.47343 miles)
         ELSE 0
       END AS break
     FROM
@@ -441,7 +442,6 @@ WITH
       agg_segs a
       LEFT JOIN nj_bp_only c ON c.sri = a.sri AND c.mp >= a.window_from AND c.mp <= a.window_to
       LEFT JOIN input.nj_lrs_access lrs ON a.sri = lrs.sri AND a.window_from >= round(lrs.mp_start::numeric, 2) AND a.window_to <= round(lrs.mp_end::numeric, 2)
-    WHERE (lrs.class IS NULL OR lrs.class != 'Limited Access') AND (lrs.route_subtype IS NULL OR lrs.route_subtype NOT IN (1,4)) -- removes limited access roads
     GROUP BY
       a.sri,
       a.window_from,
@@ -537,8 +537,9 @@ pa_crash_filter AS (
         INPUT.crash_pennsylvania cpa
     JOIN INPUT.crash_pa_roadway rpa ON rpa.crn = cpa.crn
     WHERE
-        (crash_year BETWEEN 2018 AND 2022)
+        (crash_year BETWEEN :start_year AND :start_year + 4) -- crash year range
         AND rpa.adj_rdwy_seq = 3
+        AND cpa.county != '67' -- exclude Philadelphia County
 ),
 pa_crashes_cleaned AS (
     SELECT
@@ -559,6 +560,8 @@ rms AS (
         cum_offset_end_t1
     FROM
         input.padot_rms
+    WHERE 
+        cty_code != '67' -- exclude Philadelphia County
     ORDER BY
         (concat(cty_code, st_rt_no, side_ind)),
         cum_offset_bgn_t1
@@ -588,6 +591,7 @@ create_pa_lrs AS (
         input.padot_rms
     WHERE
         geometry IS NOT NULL
+        AND cty_code != '67' -- exclude Philadelphia County
     GROUP BY
         concat(cty_code, st_rt_no, side_ind),
         cum_offset_bgn_t1,
@@ -625,9 +629,9 @@ missing_crashes AS (
     LEFT JOIN rms_crashes rc ON cp.crn = rc.crn
     WHERE
         rc.crn IS NULL
-        AND cp.crash_year >= 2018
-        AND cp.crash_year <= 2022
+        AND (crash_year BETWEEN :start_year AND :start_year + 4)
         AND st_isempty(cp.geometry) IS false
+        AND cp.county != '67' -- exclude Philadelphia County
 ),
 -- local roads crash processing
 local_roads_crashes AS (
@@ -643,16 +647,17 @@ local_roads_crashes AS (
         missing_crashes ms
     JOIN (
         SELECT
-            padot_localroads.geometry,
-            padot_localroads.cty_code,
-            padot_localroads.lr_id,
-            padot_localroads.segment_number,
-            padot_localroads.cum_offset_bgn,
-            padot_localroads.cum_offset_end
+            lr.geometry,
+            lr.cty_code,
+            lr.lr_id,
+            lr.segment_number,
+            lr.cum_offset_bgn,
+            lr.cum_offset_end
         FROM
-            INPUT.padot_localroads
+            INPUT.padot_localroads lr
         WHERE
-            padot_localroads.lr_id IS NOT NULL
+            lr.lr_id IS NOT NULL
+            AND lr.cty_code != '67' -- exclude Philadelphia County
     ) lr ON st_dwithin(ms.geom, lr.geometry, 10::DOUBLE PRECISION)
     ORDER BY
         ms.geom,
@@ -691,11 +696,11 @@ WITH
       rms.seg_lngth_feet AS e_offset,
       rms.cum_offset_bgn_t1 AS tot_measure_b,
       rms.cum_offset_end_t1 AS tot_measure_e,
-      rms.interst_netwrk_ind,
-      rms.access_ctrl,
       'rms' AS road_type
     FROM
       input.padot_rms rms
+    WHERE 
+        cty_code != '67' or access_ctrl != '1' -- exclude Philadelphia County and limited access roads
     ORDER BY
       (concat(rms.cty_code, rms.st_rt_no, rms.seg_no)),
       rms.side_ind
@@ -705,15 +710,11 @@ WITH
       r.id,
       MIN(r.tot_measure_b) AS b_feet,
       MAX(r.tot_measure_e) AS e_feet,
-      r.interst_netwrk_ind as interstate,
-      r.access_ctrl,
       r.road_type
     FROM
       rms_cleaned r
     GROUP BY
       r.id,
-      r.interst_netwrk_ind,
-      r.access_ctrl,
       r.road_type
   ),
   -- Local road segments
@@ -722,11 +723,11 @@ WITH
       lr_id::text AS id,
       MIN(cum_offset_bgn)::numeric AS b_feet,
       MAX(cum_offset_end)::numeric AS e_feet,
-      NULL AS interstate,
-      NULL AS access_ctrl,
       'local' AS road_type
     FROM
       input.padot_localroads
+    WHERE 
+      cty_code != '67' -- exclude Philadelphia County
     GROUP BY
       lr_id
   )
@@ -745,9 +746,7 @@ CREATE VIEW input.pa_slidingwindow AS
       r.b_feet AS road_ft_start,
       r.e_feet AS road_ft_end,
       r.b_feet AS window_from,
-      LEAST(r.b_feet + (5280 * 0.51), r.e_feet) AS window_to,
-      r.interstate,
-      r.access_ctrl,
+      LEAST(r.b_feet + (5280 * (:windowsize + :window_increment)), r.e_feet) AS window_to,
       r.road_type
     FROM
       input.pa_long_segs r
@@ -760,8 +759,6 @@ CREATE VIEW input.pa_slidingwindow AS
       w.road_ft_end,
       w.window_from + (5280 * :window_increment) AS window_from,
       LEAST(w.window_from + (5280 * :windowsize), w.road_ft_end) AS window_to,
-      w.interstate,
-      w.access_ctrl,
       w.road_type
     FROM
       windows w
@@ -774,8 +771,6 @@ SELECT
   ROUND(CAST(windows.road_ft_end AS NUMERIC), 2) AS road_ft_end,
   ROUND(CAST(windows.window_from AS NUMERIC), 2) AS window_from,
   ROUND(CAST(windows.window_to AS NUMERIC), 2) AS window_to,
-  windows.interstate,
-  windows.access_ctrl,
   windows.road_type
 FROM
   windows
@@ -897,7 +892,6 @@ WITH
       LEFT JOIN input.pa_long_segs segs ON segs.id = a.id 
         AND a.window_from >= segs.b_feet 
         AND a.window_to <= segs.e_feet
-    WHERE segs.access_ctrl IS NULL OR segs.access_ctrl != '1'
     GROUP BY
       a.id,
       a.window_from,
@@ -932,6 +926,7 @@ WITH
         input.padot_rms
       WHERE
         geometry IS NOT NULL
+        AND cty_code != '67' -- exclude Philadelphia County
       GROUP BY
         concat(cty_code, st_rt_no, side_ind),
         cum_offset_bgn_t1,
@@ -1115,7 +1110,6 @@ WITH
       LEFT JOIN input.pa_long_segs segs ON segs.id = a.id 
         AND a.window_from >= segs.b_feet 
         AND a.window_to <= segs.e_feet
-    WHERE segs.access_ctrl IS NULL OR segs.access_ctrl != '1'
     GROUP BY
       a.id,
       a.window_from,
@@ -1150,6 +1144,7 @@ WITH
         input.padot_rms
       WHERE
         geometry IS NOT NULL
+        AND cty_code != '67' -- exclude Philadelphia County
       GROUP BY
         concat(cty_code, st_rt_no, side_ind),
         cum_offset_bgn_t1,

@@ -1,5 +1,5 @@
 # Regional High Injury Network (RHIN)
-Data driven approach to identify road segments with KSI and Bicycle/Pedestrian crash trends.
+Data driven approach to identify road segments with KSI and Bicycle/Pedestrian crash trends over a 5 year time period.
 
 ### Methodology
 This project uses a sliding window approach to identify segments with high KSI and bike/ped crashes.  Each window is 0.5 miles long with a 0.01 mile sliding increment along along a route.
@@ -10,6 +10,7 @@ windowsize = 0.5
 window_increment = 0.01 
 gap = 0.47343 
 crashcount = 2
+start_year = 2018
 ```
 
 **Disclaimer:**

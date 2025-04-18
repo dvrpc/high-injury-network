@@ -83,17 +83,20 @@ WITH person_summary AS (
 SELECT 
     rg.hin_id,
     rg.type,
+    rg.id as road_id,
+    rg.window_from,
+    rg.window_to,
     rg.road_type,
     'pa' AS state,
     rg.threshold AS hin_threshold_count,
     -- Total crash count
     COUNT(DISTINCT t.crn) AS total_crash_count,
     -- Crashes by year
-    SUM(CASE WHEN c.crash_year = 2018 THEN 1 ELSE 0 END) AS crashes_2018,
-    SUM(CASE WHEN c.crash_year = 2019 THEN 1 ELSE 0 END) AS crashes_2019,
-    SUM(CASE WHEN c.crash_year = 2020 THEN 1 ELSE 0 END) AS crashes_2020,
-    SUM(CASE WHEN c.crash_year = 2021 THEN 1 ELSE 0 END) AS crashes_2021,
-    SUM(CASE WHEN c.crash_year = 2022 THEN 1 ELSE 0 END) AS crashes_2022,
+    SUM(CASE WHEN c.crash_year = :start_year THEN 1 ELSE 0 END) AS crashes_year_1,
+    SUM(CASE WHEN c.crash_year = :start_year + 1 THEN 1 ELSE 0 END) AS crashes_year_2,
+    SUM(CASE WHEN c.crash_year = :start_year + 2 THEN 1 ELSE 0 END) AS crashes_year_3,
+    SUM(CASE WHEN c.crash_year = :start_year + 3 THEN 1 ELSE 0 END) AS crashes_year_4,
+    SUM(CASE WHEN c.crash_year = :start_year + 4 THEN 1 ELSE 0 END) AS crashes_year_5,
     -- Collision types
     SUM(CASE WHEN c.collision_type = '0' THEN 1 ELSE 0 END) AS non_collision,
     SUM(CASE WHEN c.collision_type = '1' THEN 1 ELSE 0 END) AS rear_end,
@@ -148,6 +151,8 @@ SELECT
     SUM(c.susp_minor_inj_Count) AS minor_injury_count,
     SUM(ps.not_injured_count) AS no_injury_count,
     -- Pedestrian and Bicyclist counts
+    COUNT(DISTINCT CASE WHEN f.bicycle > 0 THEN f.crn ELSE NULL END) AS bicycle_count,
+	COUNT(DISTINCT CASE WHEN f.pedestrian > 0 THEN f.crn ELSE NULL END) AS ped_count,
     SUM(c.ped_death_count) AS ped_fatal_count,
     SUM(c.bicycle_death_count) AS bike_fatal_count,
     rg.geometry as geom
@@ -181,10 +186,14 @@ FROM
     -- Join to your crash table to get all the required fields
     JOIN input.crash_pennsylvania c ON c.crn = t.crn
     LEFT JOIN person_summary ps ON ps.crn = c.crn
+    LEFT JOIN input.crash_pa_flag f on t.crn = f.crn
 GROUP BY 
     rg.hin_id,
-    rg.road_type,
     rg.type,
+    rg.id,
+    rg.window_from,
+    rg.window_to,
+    rg.road_type,
     rg.threshold,
     rg.geometry
 ORDER BY 
@@ -266,15 +275,18 @@ hin_data AS (
 SELECT 
     rg.hin_id,
     rg.type,
+    rg.sri,
+    rg.window_from,
+    rg.window_to,
     'nj' AS state,
-    rg.threshold,
+    rg.threshold AS hin_threshold_count,
     -- Total crash count
     COUNT(DISTINCT t.casenumber) AS total_crash_count,
-    SUM(CASE WHEN right(c.crash_date,4) = '2017' THEN 1 ELSE 0 END) AS crashes_2017,
-    SUM(CASE WHEN right(c.crash_date,4) = '2018' THEN 1 ELSE 0 END) AS crashes_2018,
-    SUM(CASE WHEN right(c.crash_date,4) = '2019' THEN 1 ELSE 0 END) AS crashes_2019,
-    SUM(CASE WHEN right(c.crash_date,4) = '2020' THEN 1 ELSE 0 END) AS crashes_2020,
-    SUM(CASE WHEN right(c.crash_date,4) = '2021' THEN 1 ELSE 0 END) AS crashes_2021,
+    SUM(CASE WHEN right(c.crash_date,4) = CAST(:start_year AS VARCHAR) THEN 1 ELSE 0 END) AS crashes_year_1,
+    SUM(CASE WHEN right(c.crash_date,4) = CAST((:start_year + 1) AS VARCHAR) THEN 1 ELSE 0 END) AS crashes_year_2,
+    SUM(CASE WHEN right(c.crash_date,4) = CAST((:start_year + 2) AS VARCHAR) THEN 1 ELSE 0 END) AS crashes_year_3,
+    SUM(CASE WHEN right(c.crash_date,4) = CAST((:start_year + 3) AS VARCHAR) THEN 1 ELSE 0 END) AS crashes_year_4,
+    SUM(CASE WHEN right(c.crash_date,4) = CAST((:start_year + 4) AS VARCHAR) THEN 1 ELSE 0 END) AS crashes_year_5,
     -- Collision Type
     SUM(CASE WHEN c.crash_type_code = '01' THEN 1 ELSE 0 END) AS same_direction_rear_end,
     SUM(CASE WHEN c.crash_type_code = '02' THEN 1 ELSE 0 END) AS same_direction_sideswipe,
@@ -339,6 +351,9 @@ FROM
 GROUP BY 
     rg.hin_id,
     rg.type,
+    rg.sri,
+    rg.window_from,
+    rg.window_to,
     rg.threshold,
     rg.geometry
 ORDER BY 
